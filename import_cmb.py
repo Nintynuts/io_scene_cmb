@@ -1,269 +1,264 @@
-import sys, os, array, bpy, bmesh, operator, math, mathutils
+import os, array, bpy, bmesh, io
 
-from .cmb import readCmb
+from .cmb import *
+from .utils import *
 from .ctrTexture import DecodeBuffer
-from .cmbEnums import SkinningMode, DataTypes
-from .utils import (readArray, readDataType, getFlag, getDataTypeSize,
-                    getWorldTransform, transformPosition, transformNormal)
+from .materials import generateMaterial
 
-#TODO: Clean up
-def load_cmb( operator, context ):
-    for area in bpy.context.screen.areas:
-        if area.type == 'VIEW_3D':
-            for space in area.spaces:
-                if space.type == 'VIEW_3D':
-                    space.viewport_shade = 'MATERIAL'
+# TODO: Clean up
 
-    for screen in bpy.data.screens:
-        for area in screen.areas:
-            if area.type == 'VIEW_3D':
-                area.spaces.active.clip_start = 10.0
-                area.spaces.active.clip_end = 100000.0
+def load_cmb(operator, context):
+    root = get_or_add_root()
 
-    bpy.context.scene.render.engine = 'CYCLES'# Idc if you don't like cycles
+    dirname = os.path.dirname(operator.filepath)
+    for file in operator.files:
+        path = os.path.join(dirname, file.name)
+        with open(path, "rb") as f:
+            model = LoadModel(f, os.path.split(path)[0], bpy.context.collection)
+            model.parent = root
 
-    for f in enumerate(operator.files):
-        fpath = operator.directory + f[1].name
-        LoadModel(fpath)
-        return {"FINISHED"}
+    return {"FINISHED"}
 
-def LoadModel(filepath):
-    with open(filepath, "rb") as f:
-        cmb = readCmb(f)
-        vb = cmb.vatr#VertexBufferInfo
-        boneTransforms = {}
+def LoadModel(f: io.BufferedReader, folderName, collection):
+    cmb = readCmb(f)
+    vb = cmb.vatr  # VertexBufferInfo
+    boneTransforms = {}
 
-        # ################################################################
-        # Build skeleton
-        # ################################################################
+    # ################################################################
+    # Build skeleton
+    # ################################################################
 
-        skeleton = bpy.data.armatures.new(cmb.name)# Create new armature
-        skl_obj = bpy.data.objects.new(skeleton.name, skeleton)# Create new armature object
-        skl_obj.show_x_ray = True
-        bpy.context.scene.objects.link(skl_obj)# Link armature to the scene
-        bpy.context.scene.objects.active = skl_obj# Select the skeleton for editing
-        bpy.ops.object.mode_set(mode='EDIT')# Set to edit mode
+    skeleton = bpy.data.armatures.new(f"{cmb.name}_armature")  # Create new armature
+    # Create new armature object
+    skl_obj = bpy.data.objects.new(cmb.name, skeleton)
+    skl_obj.show_in_front = True
+    collection.objects.link(skl_obj)  # Link armature to the scene
+    bpy.context.view_layer.objects.active = skl_obj  # Select the skeleton for editing
+    bpy.ops.object.mode_set(mode='EDIT')  # Set to edit mode
 
-        for bone in cmb.skeleton:
-            # Save the matrices so we don't have to recalculate them for single-binded meshes later
-            boneTransforms[bone.id] = getWorldTransform(cmb.skeleton, bone.id)
+    for bone in cmb.skeleton:
+        # Save the matrices so we don't have to recalculate them for single-binded meshes later
+        matrix = boneTransforms[bone.id] = getWorldTransform(bone)
+        eb = skeleton.edit_bones.new(f'bone_{bone.id}')
+        eb.matrix = matrix.transposed()
+        eb.use_connect = True
 
-            eb = skeleton.edit_bones.new('bone_{}'.format(bone.id))
-            eb.use_inherit_scale = eb.use_inherit_rotation = eb.use_deform = True# Inherit rotation/scale and use deform
-            eb.head = bone.translation# Set head position
-            eb.matrix = boneTransforms[bone.id].transposed()# Apply matrix
+        # Inherit rotation/scale and use deform
+        # eb.use_inherit_scale = eb.use_inherit_rotation = eb.use_deform = True
 
-            # Assign parent bone
-            if bone.parentId != -1:
-                eb.parent = skeleton.edit_bones[bone.parentId]
-                eb.tail = eb.parent.head
-            eb.tail[1] += 0.001# Blender will delete all zero-length bones
-        
-        bpy.ops.object.mode_set(mode='OBJECT')
-        bpy.ops.object.select_all(action='DESELECT')
+        # Assign parent bone
+        if bone.parentId != -1:
+            eb.parent = skeleton.edit_bones[bone.parentId]
+            eb.tail = (boneTransforms[bone.parentId] @ Vector(bone.translation)).to_3d()
+            boneTransforms[bone.id] = boneTransforms[bone.parentId] @ boneTransforms[bone.id]
 
-        # ################################################################
-        # Add Textures
-        # ################################################################
-        textureNames = []# Used as a lookup
+        eb.tail[1] += 0.001  # Blender will delete all zero-length bones
 
-        for t in cmb.textures:
-            f.seek(cmb.texDataOfs + t.dataOffset)
+        #print(f"bone: {bone.id}, parent: {bone.parentId}, position: {bone.translation}, rotation: {bone.rotation}, scale: {bone.scale}")
 
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+
+    # ################################################################
+    # Add Textures
+    # ################################################################
+    textureNames = []  # Used as a lookup
+
+    if (not os.path.exists(folderName)):
+        os.mkdir(folderName)
+
+    for t in cmb.textures:
+        f.seek(cmb.texDataOfs + t.dataOffset)
+        fileName = os.path.join(folderName, t.name) + ".png"
+        textureNames.append(fileName)
+
+        # Note: Pixels are in floating-point values
+        if (cmb.texDataOfs != 0):
             image = bpy.data.images.new(t.name, t.width, t.height, alpha=True)
-            textureNames.append(image.name)
-            # Note: Pixels are in floating-point values
-            if(cmb.texDataOfs != 0):
-                image.pixels = DecodeBuffer(readArray(f, t.dataLength, DataTypes.UByte), t.width, t.height, t.imageFormat, t.isETC1)
-            image.update()# Updates the display image
-            image.pack(True)# Pack the image into the .blend file. True = pack as .png
-        
-        # ################################################################
-        # Add Materials
-        # ################################################################
-        materialNames = []# Used as a lookup
+            pixels = DecodeBuffer(readArray(f, t.dataLength, DataTypes.UByte),
+                                    t.width, t.height, t.imageFormat, t.isETC1)
+            image.pixels = pixels
+            image.update()  # Updates the display image                
+            image.filepath_raw = fileName
+            image.file_format = 'PNG'
+            image.save()
+            # Pack the image into the .blend file. True = pack as .png
+            # packed_data = struct.pack('f' * len(pixels), *pixels)
+            # image.pack(data=packed_data, data_len=len(packed_data))
 
-        #TODO: Mimic materials best as possible
-        for m in cmb.materials:
-            mat = bpy.data.materials.new('{}_mat'.format(cmb.name))# Create new material
-            mat.use_nodes = True# Use nodes
-            materialNames.append(mat.name)
-            
-            nodes = mat.node_tree.nodes
-            links = mat.node_tree.links
-            mat.node_tree.nodes.remove(nodes.get('Diffuse BSDF'))# Remove the default material blender creates
-            
-            out = nodes.get("Material Output")# Output node
-            sdr = nodes.new("ShaderNodeBsdfPrincipled")# Create new shader node to use
-            texture = nodes.new("ShaderNodeTexImage")# Create new texture node
-            texture.image = bpy.data.images.get(textureNames[m.TextureMappers[0].textureID])# Set the texture's image
-            links.new(sdr.inputs[0], texture.outputs[0])# Link Image "Color" to shaders "Base Color"
-            links.new(sdr.outputs[0], out.inputs[0])# Link shader output "BSDF" to material output "Surface"
-        
-        # ################################################################
-        # Build Meshes
-        # ################################################################
+    # ################################################################
+    # Add Materials
+    # ################################################################
+    materialNames = []  # Used as a lookup
 
-        for mesh in cmb.meshes:
-            shape = cmb.shapes[mesh.shapeIndex]
-            indices = [faces for pset in shape.primitiveSets for faces in pset.primitive.indices]
-            vertexCount = max(indices)+1
-            vertices = []
-            bindices = {}
+    for matIdx in range(len(cmb.materials)):
+        generateMaterial(cmb.materials[matIdx], cmb.name, materialNames, textureNames)
 
-            # Python doesn't have increment operator (afaik) so this must be ugly...
-            inc = 0 #increment
-            hasNrm = getFlag(shape.vertFlags, 1, inc)
-            if cmb.version > 6: inc+=1 #Skip "HasTangents" for now
-            hasClr = getFlag(shape.vertFlags, 2, inc)
-            hasUv0 = getFlag(shape.vertFlags, 3, inc)
-            hasUv1 = getFlag(shape.vertFlags, 4, inc)
-            hasUv2 = getFlag(shape.vertFlags, 5, inc)
-            hasBi  = getFlag(shape.vertFlags, 6, inc)
-            hasBw  = getFlag(shape.vertFlags, 7, inc)
+    # ################################################################
+    # Build Meshes
+    # ################################################################
 
-            # Create new mesh
-            nmesh = bpy.data.meshes.new('VisID:{}'.format(mesh.ID))# ID is used for visibility animations
-            nmesh.use_auto_smooth = True# Needed for custom split normals
-            nmesh.materials.append(bpy.data.materials.get(materialNames[mesh.materialIndex]))# Add material to mesh
-            
-            obj = bpy.data.objects.new(nmesh.name, nmesh)# Create new mesh object
-            obj.parent = skl_obj# Set parent skeleton
+    for m in range(len(cmb.meshes)):
+        mesh = cmb.meshes[m]
+        shape = cmb.shapes[mesh.shapeIndex]
+        indices = [faces for pset in shape.primitiveSets for faces in pset.primitive.indices]
+        vertexCount = max(indices)+1
+        vertices = []
+        bindices = {}
 
-            ArmMod = obj.modifiers.new(skl_obj.name,"ARMATURE")
-            ArmMod.object = skl_obj# Set the modifiers armature
+        #print(f"mesh: {m}, shape: {mesh.shapeIndex}, bone: {mesh.ID}, material: {mesh.materialIndex}")
 
-            for bone in bpy.data.armatures[skeleton.name].bones.values():
-                obj.vertex_groups.new(name=bone.name)
+        # Python doesn't have increment operator (afaik) so this must be ugly...
+        inc = 0  # increment
+        hasNrm = getFlag(shape.vertFlags, 1, inc)
+        if cmb.version > 6:
+            inc += 1  # Skip "HasTangents" for now
+        hasClr = getFlag(shape.vertFlags, 2, inc)
+        hasUv0 = getFlag(shape.vertFlags, 3, inc)
+        hasUv1 = getFlag(shape.vertFlags, 4, inc)
+        hasUv2 = getFlag(shape.vertFlags, 5, inc)
+        hasBi = getFlag(shape.vertFlags, 6, inc)
+        hasBw = getFlag(shape.vertFlags, 7, inc)
 
-            # Get bone indices. We need to get these first because-
-            # each primitive has it's own bone table
-            for s in shape.primitiveSets:
-                for i in s.primitive.indices:
-                    if(hasBi and s.skinningMode != SkinningMode.Single):
-                        f.seek(cmb.vatrOfs + vb.bIndices.startOfs + shape.bIndices.start + i * shape.boneDimensions)
-                        for bi in range(shape.boneDimensions):
-                            bindices[i * shape.boneDimensions + bi] = s.boneTable[int(readDataType(f, shape.bIndices.dataType) * shape.bIndices.scale)]
-                    else: bindices[i] = shape.primitiveSets[0].boneTable[0]# For single-bind meshes
+        # Create new mesh
+        # ID is used for visibility animations
+        nmesh = bpy.data.meshes.new('shape_{}'.format(mesh.shapeIndex))
+        nmesh.use_auto_smooth = True  # Needed for custom split normals
+        nmesh.materials.append(bpy.data.materials.get(materialNames[mesh.materialIndex]))  # Add material to mesh
 
-            # Create new bmesh
-            bm = bmesh.new()
-            bm.from_mesh(nmesh)
-            weight_layer = bm.verts.layers.deform.new()# Add new deform layer
+        obj = bpy.data.objects.new('mesh_{}'.format(m), nmesh)  # Create new mesh object
+        obj.parent = skl_obj  # Set parent skeleton
+        collection.objects.link(obj)
+        # obj.parent_type = 'BONE'
+        # obj.parent_bone = 'bone_{}'.format(mesh.ID)
 
-            # TODO: Support constants
-            # Get vertices
-            for i in range(vertexCount):
-                v = Vertex()# Ugly because I don't care :)
+        ArmMod = obj.modifiers.new(skl_obj.name, "ARMATURE")
+        ArmMod.object = skl_obj  # Set the modifiers armature
 
-                # Position
-                f.seek(cmb.vatrOfs + vb.position.startOfs + shape.position.start + 3 * getDataTypeSize(shape.position.dataType) * i)
-                bmv = bm.verts.new([e * shape.position.scale for e in readArray(f, 3, shape.position.dataType)])
+        for bone in bpy.data.armatures[skeleton.name].bones.values():
+            obj.vertex_groups.new(name=bone.name)
 
-                if(shape.primitiveSets[0].skinningMode != SkinningMode.Smooth):
-                    bmv.co = transformPosition(bmv.co, boneTransforms[bindices[i]])
-                
-                # Normal
-                if hasNrm:
-                    f.seek(cmb.vatrOfs + vb.normal.startOfs + shape.normal.start + 3 * getDataTypeSize(shape.normal.dataType) * i)
-                    v.nrm = [e * shape.normal.scale for e in readArray(f, 3, shape.normal.dataType)]
-
-                    if(shape.primitiveSets[0].skinningMode != SkinningMode.Smooth):
-                        v.nrm = transformNormal(v.nrm, boneTransforms[bindices[i]])
-
-                # Color
-                if hasClr:
-                    f.seek(cmb.vatrOfs + vb.color.startOfs + shape.color.start + 4 * getDataTypeSize(shape.color.dataType) * i)
-                    elements = 3 if bpy.app.version < (2, 80, 0) else 4
-                    v.clr = [e * shape.color.scale for e in readArray(f, elements, shape.color.dataType)]
-
-                # UV0
-                if hasUv0:
-                    f.seek(cmb.vatrOfs + vb.uv0.startOfs + shape.uv0.start + 2 * getDataTypeSize(shape.uv0.dataType) * i)
-                    v.uv0 = [e * shape.uv0.scale for e in readArray(f, 2, shape.uv0.dataType)]
-                
-                # UV1
-                if hasUv1:
-                    f.seek(cmb.vatrOfs + vb.uv1.startOfs + shape.uv1.start + 2 * getDataTypeSize(shape.uv1.dataType) * i)
-                    v.uv1 = [e * shape.uv1.scale for e in readArray(f, 2, shape.uv1.dataType)]
-
-                # UV2
-                if hasUv2:
-                    f.seek(cmb.vatrOfs + vb.uv2.startOfs + shape.uv2.start + 2 * getDataTypeSize(shape.uv2.dataType) * i)
-                    v.uv2 = [e * shape.uv2.scale for e in readArray(f, 2, shape.uv2.dataType)]
-                
-                # Bone Weights
-                if hasBw:
-                    # For smooth meshes
-                    f.seek(cmb.vatrOfs + vb.bWeights.startOfs + shape.bWeights.start + i * shape.boneDimensions)
-                    for j in range(shape.boneDimensions):
-                        weight = round(readDataType(f, shape.bWeights.dataType) * shape.bWeights.scale, 2)
-                        if(weight > 0): bmv[weight_layer][bindices[i * shape.boneDimensions + j]] = weight
+        # Get bone indices. We need to get these first because-
+        # each primitive has it's own bone table
+        for s in shape.primitiveSets:
+            for i in s.primitive.indices:
+                if (hasBi and s.skinningMode != SkinningMode.Single):
+                    f.seek(cmb.vatrOfs + vb.bIndices.startOfs +
+                            shape.bIndices.start + i * shape.boneDimensions)
+                    for bi in range(shape.boneDimensions):
+                        index = int(readDataType(f, shape.bIndices.dataType) * shape.bIndices.scale)
+                        bindices[i * shape.boneDimensions + bi] = (s.boneTable[index], s.skinningMode)
                 else:
                     # For single-bind meshes
-                    bmv[weight_layer][bindices[i]] = 1.0
-                
-                vertices.append(v)
-            
-            bm.verts.ensure_lookup_table()# Must always be called after adding/removing vertices or accessing them by index
-            bm.verts.index_update()# Assign an index value to each vertex
+                    bindices[i] = (s.boneTable[0], s.skinningMode)
 
-            for i in range(0, len(indices), 3):
-                try:
-                    face = bm.faces.new(bm.verts[j] for j in indices[i:i + 3])
-                    face.material_index = mesh.materialIndex
-                    face.smooth = True
-                except:# face already exists
-                    continue
-            
-            uv_layer0 = bm.loops.layers.uv.new() if (hasUv0) else None
-            uv_layer1 = bm.loops.layers.uv.new() if (hasUv1) else None
-            uv_layer2 = bm.loops.layers.uv.new() if (hasUv2) else None
-            col_layer = bm.loops.layers.color.new() if (hasClr) else None
+        if shape.primSetCount == 1 and shape.primitiveSets[0].skinningMode != SkinningMode.Smooth and shape.primitiveSets[0].boneTableCount == 1:
+            obj.matrix_world = boneTransforms[shape.primitiveSets[0].boneTable[0]]
 
-            for face in bm.faces:
-                for loop in face.loops:
-                    if hasUv0:
-                        uv0 = vertices[loop.vert.index].uv0
-                        loop[uv_layer0].uv = (uv0[0], uv0[1]) # Flip Y
-                    if hasUv1:
-                        uv1 = vertices[loop.vert.index].uv1
-                        loop[uv_layer1].uv = (uv1[0], 1 - uv1[1]) # Flip Y
-                    if hasUv2:
-                        uv2 = vertices[loop.vert.index].uv2
-                        loop[uv_layer2].uv = (uv2[0], 1 - uv2[1]) # Flip Y
-                    if hasClr:
-                        loop[col_layer] = vertices[loop.vert.index].clr
+        # Create new bmesh
+        bm = bmesh.new()
+        bm.from_mesh(nmesh)
+        weight_layer = bm.verts.layers.deform.new()  # Add new deform layer
 
-            # Assign bmesh to newly created mesh
-            nmesh.update()
-            bm.to_mesh(nmesh)
-            bm.free()# Remove all the mesh data immediately and disable further access
+        # TODO: Support constants
+        # Get vertices
+        for i in range(vertexCount):
+            v = Vertex()  # Ugly because I don't care :)
 
-            # Blender has no idea what normals are
-            #TODO: Add an option
-            UseCustomNormals = True
-            if(UseCustomNormals and hasNrm):
-                nmesh.normals_split_custom_set_from_vertices([vertices[i].nrm for i in range(len(vertices))])
+            # Position
+            bmv = bm.verts.new(ReadVector(f, cmb, i, vb.position, shape.position, 3, 3))
+            if (bindices[i][1] != SkinningMode.Smooth):
+                bmv.co = transformPosition(bmv.co, boneTransforms[bindices[i][0]])
+
+            # Normal
+            if hasNrm:
+                v.nrm = ReadVector(f, cmb, i, vb.normal, shape.normal, 3, 3)
+
+                if (bindices[i][1] != SkinningMode.Smooth):
+                    v.nrm = transformNormal(v.nrm, boneTransforms[bindices[i][0]])
+
+            # Color
+            if hasClr:
+                elements = 3 if bpy.app.version < (2, 80, 0) else 4
+                v.clr = ReadVector(f, cmb, i, vb.color, shape.color, 4, elements)
+
+            # UV0
+            if hasUv0:
+                v.uv0 = ReadVector(f, cmb, i, vb.uv0, shape.uv0, 2, 2)
+
+            # UV1
+            if hasUv1:
+                v.uv1 = ReadVector(f, cmb, i, vb.uv1, shape.uv1, 2, 2)
+
+            # UV2
+            if hasUv2:
+                v.uv2 = ReadVector(f, cmb, i, vb.uv2, shape.uv2, 2, 2)
+
+            # Bone Weights
+            if hasBw:
+                # For smooth meshes
+                f.seek(cmb.vatrOfs + vb.bWeights.startOfs + shape.bWeights.start + i * shape.boneDimensions)
+                for j in range(shape.boneDimensions):
+                    weight = round(readDataType(f, shape.bWeights.dataType) * shape.bWeights.scale, 2)
+                    if (weight > 0):
+                        bmv[weight_layer][bindices[i * shape.boneDimensions + j][0]] = weight
             else:
-                clnors = array.array('f', [0.0] * (len(nmesh.loops) * 3))
-                nmesh.loops.foreach_get("normal", clnors)
-                nmesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
-                
-            # Link object in scene
-            bpy.context.scene.objects.link(obj)
+                # For single-bind meshes
+                bmv[weight_layer][bindices[i][0]] = 1.0
 
-        f.close()
+            vertices.append(v)
 
-        #TODO: Add an option
-        Rotate = True
-        if Rotate:
-            bpy.ops.object.select_all(action='DESELECT')
+        # Must always be called after adding/removing vertices or accessing them by index
+        bm.verts.ensure_lookup_table()
+        bm.verts.index_update()  # Assign an index value to each vertex
 
-            bpy.data.objects[skeleton.name].select = True
+        for i in range(0, len(indices), 3):
+            try:
+                face = bm.faces.new(bm.verts[j] for j in indices[i:i + 3])
+                face.material_index = mesh.materialIndex
+                face.smooth = True
+            except:  # face already exists
+                continue
 
-            bpy.ops.transform.rotate(value=math.radians(90), constraint_axis=(True, False, False))
-            bpy.ops.object.select_all(action='DESELECT')
+        uv_layer0 = bm.loops.layers.uv.new("UV0") if (hasUv0) else None
+        uv_layer1 = bm.loops.layers.uv.new("UV1") if (hasUv1) else None
+        uv_layer2 = bm.loops.layers.uv.new("UV2") if (hasUv2) else None
+        col_layer = bm.loops.layers.color.new("Colour") if (hasClr) else None
+
+        for face in bm.faces:
+            for loop in face.loops:
+                if hasUv0:
+                    uv0 = vertices[loop.vert.index].uv0
+                    loop[uv_layer0].uv = (uv0[0], uv0[1])
+                if hasUv1:
+                    uv1 = vertices[loop.vert.index].uv1
+                    loop[uv_layer1].uv = (uv1[0], uv1[1])
+                if hasUv2:
+                    uv2 = vertices[loop.vert.index].uv2
+                    loop[uv_layer2].uv = (uv2[0], uv2[1])
+                if hasClr:
+                    loop[col_layer] = vertices[loop.vert.index].clr
+
+        # Assign bmesh to newly created mesh
+        nmesh.update()
+        bm.to_mesh(nmesh)
+        bm.free()  # Remove all the mesh data immediately and disable further access
+
+        # Blender has no idea what normals are
+        # TODO: Add an option
+        UseCustomNormals = True
+        if (UseCustomNormals and hasNrm):
+            nmesh.normals_split_custom_set_from_vertices([vertices[i].nrm for i in range(len(vertices))])
+        else:
+            clnors = array.array('f', [0.0] * (len(nmesh.loops) * 3))
+            nmesh.loops.foreach_get("normal", clnors)
+            nmesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
+
+    return skl_obj
+
+def ReadVector(f, cmb, i, vb, shape, size, sizeBlender):
+    f.seek(cmb.vatrOfs + vb.startOfs + shape.start + size * getDataTypeSize(shape.dataType) * i)
+    return [e * shape.scale for e in readArray(f, sizeBlender, shape.dataType)]
 
 class Vertex(object):
     def __init__(self):

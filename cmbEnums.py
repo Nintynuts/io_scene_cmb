@@ -60,8 +60,8 @@ class BumpMode(IntEnum):
 
 class BumpTexture(IntEnum):
     Texture0 = 0x84C0,
-    Texture1 = 0x84C0,
-    Texture2 = 0x84C0
+    Texture1 = 0x84C1,
+    Texture2 = 0x84C2
 
 class BlendEquation(IntEnum):
     FuncAdd = 0x8006,

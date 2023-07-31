@@ -278,7 +278,7 @@ class TexMapper(object):
 
 class TexCoords(object):
     def __init__(self):
-        self.matrixMode = TextureMatrixMode.DccMaya
+        self.uvChannel = 0
         self.referenceCameraIndex = 0
         self.mappingMethod = TextureMappingType.UvCoordinateMap
         self.coordinateIndex = 0
@@ -287,7 +287,7 @@ class TexCoords(object):
         self.translation = [0.0, 0.0]
 
     def read(self,f):
-        self.matrixMode = TextureMatrixMode(readUByte(f))
+        self.uvChannel = readUByte(f)
         self.referenceCameraIndex = readUByte(f)
         self.mappingMethod = TextureMappingType(readUByte(f))
         self.coordinateIndex = readUByte(f)
