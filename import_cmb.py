@@ -7,19 +7,18 @@ from .materials import generateMaterial
 
 # TODO: Clean up
 
-def load_cmb(operator, context):
+def loadCmbFiles(operator):
     root = get_or_add_root()
 
     dirname = os.path.dirname(operator.filepath)
     for file in operator.files:
         path = os.path.join(dirname, file.name)
         with open(path, "rb") as f:
-            model = LoadModel(f, os.path.split(path)[0], bpy.context.collection)
-            model.parent = root
+            loadCmb(f, os.path.split(path)[0], bpy.context.collection, root)
 
     return {"FINISHED"}
 
-def LoadModel(f: io.BufferedReader, folderName, collection):
+def loadCmb(f: io.BufferedReader, folderName, collection, parent):
     cmb = readCmb(f)
     vb = cmb.vatr  # VertexBufferInfo
     boneTransforms = {}
@@ -166,13 +165,13 @@ def LoadModel(f: io.BufferedReader, folderName, collection):
             v = Vertex()  # Ugly because I don't care :)
 
             # Position
-            bmv = bm.verts.new(ReadVector(f, cmb, i, vb.position, shape.position, 3, 3))
+            bmv = bm.verts.new(readVector(f, cmb, i, vb.position, shape.position, 3, 3))
             if (bindices[i][1] != SkinningMode.Smooth):
                 bmv.co = transformPosition(bmv.co, boneTransforms[bindices[i][0]])
 
             # Normal
             if hasNrm:
-                v.nrm = ReadVector(f, cmb, i, vb.normal, shape.normal, 3, 3)
+                v.nrm = readVector(f, cmb, i, vb.normal, shape.normal, 3, 3)
 
                 if (bindices[i][1] != SkinningMode.Smooth):
                     v.nrm = transformNormal(v.nrm, boneTransforms[bindices[i][0]])
@@ -180,19 +179,19 @@ def LoadModel(f: io.BufferedReader, folderName, collection):
             # Color
             if hasClr:
                 elements = 3 if bpy.app.version < (2, 80, 0) else 4
-                v.clr = ReadVector(f, cmb, i, vb.color, shape.color, 4, elements)
+                v.clr = readVector(f, cmb, i, vb.color, shape.color, 4, elements)
 
             # UV0
             if hasUv0:
-                v.uv0 = ReadVector(f, cmb, i, vb.uv0, shape.uv0, 2, 2)
+                v.uv0 = readVector(f, cmb, i, vb.uv0, shape.uv0, 2, 2)
 
             # UV1
             if hasUv1:
-                v.uv1 = ReadVector(f, cmb, i, vb.uv1, shape.uv1, 2, 2)
+                v.uv1 = readVector(f, cmb, i, vb.uv1, shape.uv1, 2, 2)
 
             # UV2
             if hasUv2:
-                v.uv2 = ReadVector(f, cmb, i, vb.uv2, shape.uv2, 2, 2)
+                v.uv2 = readVector(f, cmb, i, vb.uv2, shape.uv2, 2, 2)
 
             # Bone Weights
             if hasBw:
@@ -254,9 +253,10 @@ def LoadModel(f: io.BufferedReader, folderName, collection):
             nmesh.loops.foreach_get("normal", clnors)
             nmesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
 
+    skl_obj.parent = parent
     return skl_obj
 
-def ReadVector(f, cmb, i, vb, shape, size, sizeBlender):
+def readVector(f, cmb, i, vb, shape, size, sizeBlender):
     f.seek(cmb.vatrOfs + vb.startOfs + shape.start + size * getDataTypeSize(shape.dataType) * i)
     return [e * shape.scale for e in readArray(f, sizeBlender, shape.dataType)]
 

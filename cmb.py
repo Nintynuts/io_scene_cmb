@@ -1,4 +1,5 @@
 import sys, os
+from io import BufferedReader
 from .utils import (align, readDataType, readString, readArray, readFloat, 
                     readUInt32, readInt32, readUShort, 
                     readShort, readByte, readUByte)
@@ -20,37 +21,37 @@ class Cmb(object):
         self.shapes = [Sepd()]
         self.vatr = Vatr()
 
-    def read(self, f):
-            header = CmbHeader().read(f)
-            skl = Skl().read(f)# Skeleton
-            #qtrs = Qtrs().read(f) if (Version > 6) else Qtrs()
-            f.seek(header.matsOfs)
-            mat = Mat().read(f)# Materials
-            tex = Tex().read(f)# Textures
-            sklm = Sklm().read(f)# Skeleton Meshes
-            f.seek(header.vatrOfs)
-            vatr = Vatr().read(f)# Vertex Attributes
+    def read(self, f: BufferedReader):
+        header = CmbHeader().read(f)
+        skl = Skl().read(f)# Skeleton
+        #qtrs = Qtrs().read(f) if (Version > 6) else Qtrs()
+        f.seek(header.matsOfs)
+        mat = Mat().read(f)# Materials
+        tex = Tex().read(f)# Textures
+        sklm = Sklm().read(f)# Skeleton Meshes
+        f.seek(header.vatrOfs)
+        vatr = Vatr().read(f)# Vertex Attributes
 
-            # Add face indices to primitive sets
-            for shape in sklm.shapes:
-                for pset in shape.primitiveSets:
-                    f.seek(header.faceIndicesOfs + pset.primitive.offset * 2)# Always * 2 even if ubyte is used...
-                    pset.primitive.indices = [int(readDataType(f, pset.primitive.dataType)) for _ in range(pset.primitive.indicesCount)]
+        # Add face indices to primitive sets
+        for shape in sklm.shapes:
+            for pset in shape.primitiveSets:
+                f.seek(header.faceIndicesOfs + pset.primitive.offset * 2)# Always * 2 even if ubyte is used...
+                pset.primitive.indices = [int(readDataType(f, pset.primitive.dataType)) for _ in range(pset.primitive.indicesCount)]
 
-            self.skeleton = skl.bones
-            self.materials = mat.materials# TODO: Combiners
-            self.textures = tex.textures
-            self.meshes = sklm.meshes
-            self.shapes = sklm.shapes
-            self.vatr = vatr
+        self.skeleton = skl.bones
+        self.materials = mat.materials# TODO: Combiners
+        self.textures = tex.textures
+        self.meshes = sklm.meshes
+        self.shapes = sklm.shapes
+        self.vatr = vatr
 
-            self.texDataOfs = header.textureDataOfs
-            self.indicesOfs = header.faceIndicesOfs
-            self.vatrOfs = header.vatrOfs
-            self.name = header.name
-            self.version = Version
+        self.texDataOfs = header.textureDataOfs
+        self.indicesOfs = header.faceIndicesOfs
+        self.vatrOfs = header.vatrOfs
+        self.name = header.name
+        self.version = Version
 
-            return self
+        return self
 
 class CmbHeader(object):
     def __init__(self):
@@ -72,7 +73,7 @@ class CmbHeader(object):
         self.textureDataOfs = 0# Texture data buffer Offset
         self.unk0 = 0# Always 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.filesize = readUInt32(f)
         self.version = readUInt32(f)
@@ -100,7 +101,7 @@ class Mesh(object):
         self.materialIndex = 0
         self.ID = 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.shapeIndex = readUShort(f)
         self.materialIndex = readUByte(f)
         self.ID = readUByte(f)
@@ -122,7 +123,7 @@ class Primitive(object):
         self.indices = [0,1,2]
         self.offset = 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f,4)
         self.chunkSize = readUInt32(f)
         self.isVisible = readUInt32(f) != 0
@@ -144,7 +145,7 @@ class PrimitiveSet(object):
         self.boneTable = [0]
         self.primitive = Primitive()
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.primitiveCount = readUInt32(f)
@@ -164,7 +165,7 @@ class VertexAttribute(object):
         self.dataType = DataTypes.Float
         self.mode = VertexAttributeMode.Array
         self.constants = [0.0, 0.0, 0.0, 0.0]
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.start = readUInt32(f)
         self.scale = readFloat(f)
         self.dataType = DataTypes(readUShort(f))
@@ -198,7 +199,7 @@ class Sepd(object):
         self.constantFlags = 0
         self.primitiveSets = [PrimitiveSet()]
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f,4)
         self.chunkSize = readUInt32(f)
         self.primSetCount = readUShort(f)# PrimitiveSet Count
@@ -264,7 +265,7 @@ class TexMapper(object):
         self.lodBias = 0.0
         self.borderColor = [0,0,0,255]
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.textureID = readShort(f)# Not an int because "-1" is 0xFFFF0000 and not 0xFFFFFFFF
         readShort(f)# Alignment
         self.minFilter = readUShort(f)
@@ -286,7 +287,7 @@ class TexCoords(object):
         self.rotation = 0.0
         self.translation = [0.0, 0.0]
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.uvChannel = readUByte(f)
         self.referenceCameraIndex = readUByte(f)
         self.mappingMethod = TextureMappingType(readUByte(f))
@@ -310,7 +311,7 @@ class Sampler(object):
 	    # Four = 4.0,
 	    # Eight = 8.0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.isAbs = readUByte(f) != 0
         self.index = readByte(f)
         self.input = LutInput(readUShort(f))
@@ -339,7 +340,7 @@ class Combiner(object):
         self.operandAlpha2 = TexCombinerAlphaOp.Alpha
         self.constColorIndex = 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.combinerModeColor = TexCombineMode(readUShort(f))
         self.combinerModeAlpha = TexCombineMode(readUShort(f))
         self.scaleColor = TexCombineScale(readUShort(f))
@@ -373,7 +374,7 @@ class Texture(object):
         self.dataOffset = 0
         self.name = "Dummy"
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.dataLength = readUInt32(f)
         self.mimapCount = readUShort(f)
         self.isETC1 = readUByte(f) != 0
@@ -458,7 +459,7 @@ class Material(object):
         self.zPassOP = StencilTestOp.Keep
         self.Unk1 = 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.isFragmentLightingEnabled = readUByte(f) != 0
         self.isVertexLightingEnabled = readUByte(f) != 0
         self.isHemiSphereLightingEnabled = readUByte(f) != 0
@@ -548,7 +549,7 @@ class Bone(object):
         self.translation = {0,0,0}
         self.unk0 = 0
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         # Because only 12 bits are used, 4095 is the max bone count. (In versions > OoT3D anyway)
         self.id = readUShort(f)
         # Other 4 bits are probably more flags, but they're not used in any of the three games
@@ -571,7 +572,7 @@ class Skl(object):
         self.unkFlags = 0
         self.bones = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.boneCount = readUInt32(f)
@@ -589,7 +590,7 @@ class BoundingBox(object):
         self.unk2 = -1# Unknown Index
         self.unk3 = -1
         self.unk4 = 0# No idea
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.unk0 = readUInt32(f)
         self.unk1 = readUInt32(f)
         self.min = readArray(f, 3)
@@ -605,7 +606,7 @@ class Qtrs(object):
         self.chunkSize = 348
         self.boxCount = 0
         self.boundingboxes = []
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.boxCount = readUInt32(f)
@@ -619,7 +620,7 @@ class Mat(object):
         self.matCount = 0
         self.materials = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.matCount = readUInt32(f)
@@ -643,7 +644,7 @@ class Tex(object):
         self.texCount = 0
         self.textures = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.texCount = readUInt32(f)
@@ -660,7 +661,7 @@ class Mshs(object):
         self.idCount = 1# MeshNodeNameCount
         self.meshes = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.meshCount = readUInt32(f)
@@ -679,7 +680,7 @@ class Shp(object):
         self.flags = 0
         self.shapes = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.shapeCount = readUInt32(f)
@@ -699,7 +700,7 @@ class Sklm(object):
         self.meshes = []
         self.shapes = []
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.mshOffset = readUInt32(f)
@@ -712,7 +713,7 @@ class AttributeSlice(object):
     def __init__(self):
         self.size = 0
         self.startOfs = 0
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.size = readUInt32(f)
         self.startOfs = readUInt32(f)
         return self
@@ -733,7 +734,7 @@ class Vatr(object):
         self.bIndices = AttributeSlice()
         self.bWeights = AttributeSlice()
 
-    def read(self,f):
+    def read(self, f: BufferedReader):
         self.magic = readString(f, 4)
         self.chunkSize = readUInt32(f)
         self.maxIndex = readUInt32(f)# i.e., vertex count of model

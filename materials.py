@@ -174,12 +174,12 @@ def getCombinerNodes(m: Material, stageIdx: int, stage: Combiner, textures: list
             subtract0 = nodes.new(mathNodeName)
             subtract0.operation = 'SUBTRACT'
             links.new(src0output, subtract0.inputs[0])
-            subtract0.inputs[1].default_value = (0.5, 0.5, 0.5)
+            subtract0.inputs[1].default_value = 0.5
 
             subtract1 = nodes.new(mathNodeName)
             subtract1.operation = 'SUBTRACT'
             links.new(src1output, subtract1.inputs[0])
-            subtract1.inputs[1].default_value = (0.5, 0.5, 0.5)
+            subtract1.inputs[1].default_value = 0.5
 
             add = nodes.new(mathNodeName)
             add.operation = 'ADD'
@@ -219,6 +219,7 @@ def generateMaterial(m: Material, name: str, materialNames: list, textureNames: 
     mat = bpy.data.materials.new('{}_mat'.format(name))  # Create new material
     mat.use_nodes = True  # Use nodes
     mat.use_backface_culling = True
+    mat.specular_intensity = 0.0
     materialNames.append(mat.name)
 
     nodes = mat.node_tree.nodes
