@@ -14,9 +14,16 @@ def loadCmbFiles(operator):
     for file in operator.files:
         path = os.path.join(dirname, file.name)
         with open(path, "rb") as f:
-            loadCmb(f, os.path.split(path)[0], bpy.context.collection, root)
+            loadCmbSafe(f, os.path.split(path)[0], file.name, bpy.context.collection, root)
 
     return {"FINISHED"}
+
+def loadCmbSafe(f: io.BufferedReader, folderName: str, fileName: str, collection, parent):
+    try:
+        loadCmb(f, folderName, collection, parent)        
+    except Exception as ex:
+        print(f"Failed to load CMB {fileName}")
+        print(ex)
 
 def loadCmb(f: io.BufferedReader, folderName, collection, parent):
     cmb = readCmb(f)

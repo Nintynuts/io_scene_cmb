@@ -81,11 +81,12 @@ def __DecodeRGB565(Buffer, Address, Value):
                 R | (R >> 5))
 
 def __DecodeRGBA4(Buffer, Address, Value):
+    A = Value & 0xf
     R = (Value >>  4) & 0xf
     G = (Value >>  8) & 0xf
     B = (Value >> 12) & 0xf
     
-    __SetColor(Buffer, Address, (Value & 0xf) | (Value << 4),
+    __SetColor(Buffer, Address, A | (A << 4),
                 B | (B << 4),
                 G | (G << 4),
                 R | (R << 4))
@@ -282,10 +283,12 @@ def decode_A8(output, input, o_offs, i_offs):
     output[o_offs + 3] = input[i_offs]
 
 def decode_LA4(output, input, o_offs, i_offs):
-    output[o_offs + 0] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
-    output[o_offs + 1] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
-    output[o_offs + 2] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
-    output[o_offs + 3] = ((input[i_offs] << 4) | (input[i_offs] & 0x0f))
+    L = ((input[i_offs] >> 4) & 0xf)
+    A = (input[i_offs] & 0xf)
+    output[o_offs + 0] = L | (L << 4)
+    output[o_offs + 1] = L | (L << 4)
+    output[o_offs + 2] = L | (L << 4)
+    output[o_offs + 3] = A | (A << 4)
 
 def decode_L4(output, input, o_offs, i_offs):
     L = (input[i_offs >> 1] >> ((i_offs & 1) << 2)) & 0xf
@@ -340,7 +343,7 @@ def DecodeBuffer(Input, width, height, format, isETC1):
     decode_function = function_dict.get(format)
 
     if not decode_function:
-        raise ValueError(f"Unsupported format: {format}")
+        raise ValueError(f"Unsupported format: {format.Name}")
 
     for TY in range(0, height, 8):
         for TX in range(0, width, 8):

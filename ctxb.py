@@ -46,21 +46,27 @@ class Texture:
         self.Name = readString(f, 16)
         
 def loadCtxb(file: BufferedReader, folderName: str, fileName: str):
-    ctxb = CTXB(file)
+    try:
+        ctxb = CTXB(file)
 
-    for chunk in ctxb.Chunks:
-        for t in chunk.Textures:
-            name = t.Name if t.Name != "" else os.path.splitext(fileName)[0]
-            imagePath = os.path.join(folderName, f"{name} ({t.TextureFormat.name}).png")
-            if os.path.exists(imagePath):
-                continue
-            
-            image = bpy.data.images.new(t.Name, t.Width, t.Height, alpha=True)
-            image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, t.TextureFormat, t.TextureFormat is GLTextureFormat.ETC1a4 or GLTextureFormat.ETC1)
-            image.update()  # Updates the display image                
-            image.filepath_raw = imagePath
-            image.file_format = 'PNG'
-            image.save()
+        for chunk in ctxb.Chunks:
+            for t in chunk.Textures:
+                name = t.Name if t.Name != "" else os.path.splitext(fileName)[0]
+                format = t.TextureFormat
+                imagePath = os.path.join(folderName, f"{name}.png")
+                if os.path.exists(imagePath):
+                    continue
+                
+                image = bpy.data.images.new(t.Name, t.Width, t.Height, alpha=True)
+                image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, format, format is (GLTextureFormat.ETC1a4 or GLTextureFormat.ETC1))
+                image.update()  # Updates the display image                
+                image.filepath_raw = imagePath
+                image.file_format = 'PNG'
+                image.save()
+
+    except Exception as ex:
+        print("Failed to load CTXB file")
+        print(ex)
 
 def loadCtxbFiles(operator):
     root = get_or_add_root()

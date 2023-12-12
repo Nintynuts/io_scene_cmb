@@ -133,23 +133,20 @@ def loadGar(garReader: BufferedReader, folderName, collection, parent):
             if not os.path.exists(folderName):
                 os.mkdir(folderName)
 
-            loadCtxb(io.BufferedReader(io.BytesIO(file.Data)), folderName, os.path.dirname(folderName))
+            loadCtxb(io.BufferedReader(io.BytesIO(file.Data)), folderName, file.FileName)
 
         if file.Ext == "cmb":
-            try:
-                from .import_cmb import loadCmb
-                model = loadCmb(io.BufferedReader(io.BytesIO(file.Data)), folderName, collection, parent)
-                if firstModel == None:
-                    firstModel = model
-                else:
-                    if group == None:
-                        group = bpy.data.objects.new(folderName.replace(os.path.dirname(folderName),"").strip(os.path.sep), None)
-                        collection.objects.link(group)
-                        group.parent = parent
-                        firstModel.parent = group
-                    model.parent = group
-            except:
-                print(f"Failed to load {file.FileName}")
+            from .import_cmb import loadCmbSafe
+            model = loadCmbSafe(io.BufferedReader(io.BytesIO(file.Data)), file.FileName, folderName, collection, parent)
+            if firstModel == None:
+                firstModel = model
+            else:
+                if group == None:
+                    group = bpy.data.objects.new(folderName.replace(os.path.dirname(folderName),"").strip(os.path.sep), None)
+                    collection.objects.link(group)
+                    group.parent = parent
+                    firstModel.parent = group
+                model.parent = group
 
         if file.Ext == "gar":
             childFolderName = os.path.join(folderName, file.FileName.replace("_tex", ""))
