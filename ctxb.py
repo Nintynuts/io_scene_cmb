@@ -58,7 +58,7 @@ def loadCtxb(file: BufferedReader, folderName: str, fileName: str):
                     continue
                 
                 image = bpy.data.images.new(t.Name, t.Width, t.Height, alpha=True)
-                image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, format, format is (GLTextureFormat.ETC1a4 or GLTextureFormat.ETC1))
+                image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, format, format is GLTextureFormat.ETC1a4 or format is GLTextureFormat.ETC1)
                 image.update()  # Updates the display image                
                 image.filepath_raw = imagePath
                 image.file_format = 'PNG'

@@ -1,5 +1,6 @@
-import struct
+import struct, io
 from .cmbEnums import GLTextureFormat
+from io import BufferedReader
 #Ported from SPICA (https://github.com/gdkchan/SPICA)
 
 SwizzleLUT = (
@@ -310,7 +311,7 @@ def decode_GasOrShadow(output, input, o_offs, i_offs):
     output[o_offs + 2] = input[i_offs]
     output[o_offs + 3] = 0xff
 
-def DecodeBuffer(Input, width, height, format, isETC1):
+def DecodeBuffer(Input: BufferedReader, width: int, height: int, format: GLTextureFormat, isETC1: bool):
     #Note: I don't think HiLo8 exist for .cmb
 
     Increment = int(getFmtBPP(format) / 8)
@@ -343,7 +344,7 @@ def DecodeBuffer(Input, width, height, format, isETC1):
     decode_function = function_dict.get(format)
 
     if not decode_function:
-        raise ValueError(f"Unsupported format: {format.Name}")
+        raise ValueError(f"Unsupported format: {format.name}")
 
     for TY in range(0, height, 8):
         for TX in range(0, width, 8):
