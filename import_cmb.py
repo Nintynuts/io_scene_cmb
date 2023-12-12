@@ -241,6 +241,56 @@ def loadCmb(f: io.BufferedReader, folderName, collection, parent):
         # Assign bmesh to newly created mesh
         nmesh.update()
         bm.to_mesh(nmesh)
+
+        if hasUv0 or hasUv1 or hasUv2:
+
+            for uv_layer in obj.data.uv_layers:
+                # Set the active UV map
+                obj.data.uv_layers.active = uv_layer
+
+                # Get linked UV islands
+                islands = find_uv_islands(nmesh)
+
+                wraps = False
+
+                # Iterate over UV islands
+                for i, island in enumerate(islands):
+                    min_u, max_u = math.inf, -math.inf
+                    min_v, max_v = math.inf, -math.inf
+
+                    # Iterate over UV coordinates in the island
+                    for loop_index in island:
+                        uv_coords = uv_layer.data[loop_index].uv
+                        min_u = min(min_u, uv_coords[0])
+                        max_u = max(max_u, uv_coords[0])
+                        min_v = min(min_v, uv_coords[1])
+                        max_v = max(max_v, uv_coords[1])
+
+                    delta_u = max_u - min_u
+                    delta_v = max_v - min_v
+
+                    wraps_u = delta_u > 1 or math.ceil(min_u) == math.floor(max_u) and min_u % 1 != 0 and max_u % 1 != 0
+                    wraps_v = delta_v > 1 or math.ceil(min_v) == math.floor(max_v) and min_v % 1 != 0 and max_v % 1 != 0
+                    
+                    if (not (wraps_u or wraps_v)):
+                        continue
+                
+                    if not wraps:
+                        texture = cmb.materials[mesh.materialIndex].TextureMappers[1]
+                        print(f"Model: {cmb.name}, Mesh: {obj.name}, Texure: {os.path.basename(textureNames[texture.textureID])}, WrapS: {texture.wrapS.name}, WrapT: {texture.wrapT.name}")
+                        wraps = True
+
+                    text = f"Island: {i}, Vertices: {len(island)}"
+
+                    # Check if UVs in the island cross the repeat boundary
+                    if wraps_u:
+                        text += f", U: {min_u:6.3f} <-> {max_u:6.3f} ({delta_u:.3f})"
+
+                    if wraps_v:
+                        text += f", V: {min_v:6.3f} <-> {max_v:6.3f} ({delta_v:.3f})"
+
+                    print(text)
+
         bm.free()  # Remove all the mesh data immediately and disable further access
 
         # Blender has no idea what normals are
@@ -256,9 +306,71 @@ def loadCmb(f: io.BufferedReader, folderName, collection, parent):
     skl_obj.parent = parent
     return skl_obj
 
-def readVector(f, cmb, i, vb, shape, size, sizeBlender):
+def readVector(f: BufferedReader, cmb: Cmb, i, vb: AttributeSlice, shape: VertexAttribute, size: int, sizeBlender: int):
     f.seek(cmb.vatrOfs + vb.startOfs + shape.start + size * getDataTypeSize(shape.dataType) * i)
     return [e * shape.scale for e in readArray(f, sizeBlender, shape.dataType)]
+
+def find_uv_islands(mesh):
+    loop_to_uv = mesh.uv_layers.active.data
+
+    # Create a lookup of loop index to polygons
+    uv_to_polygons = {}
+    for i, poly in enumerate(mesh.polygons):
+        for loop_index in poly.loop_indices:
+            uv_coord = tuple(loop_to_uv[loop_index].uv)
+            if uv_coord not in uv_to_polygons:
+                uv_to_polygons[uv_coord] = set()
+            uv_to_polygons[uv_coord].add(i)
+
+    # Create a lookup of each polygon's status (0: not used, 1: used)
+    polygon_status = {i: 0 for i in range(len(mesh.polygons))}
+
+    # Create a list of islands
+    islands = []
+
+    def traverse_island(start_polygon_index, island_set):
+        stack = [start_polygon_index]
+        
+        while stack:
+            polygon_index = stack.pop()
+
+            # Add loop uv indices to the island set
+            island_set.update(mesh.polygons[polygon_index].loop_indices)
+
+            poly_uvs = set(tuple(loop_to_uv[loop_index].uv) for loop_index in mesh.polygons[polygon_index].loop_indices)
+            # Iterate over the polygon loop indices
+            for loop_index in mesh.polygons[polygon_index].loop_indices:
+                # Get linked polygons using the lookup
+                linked_polygons = uv_to_polygons.get(tuple(loop_to_uv[loop_index].uv), set())
+
+                # Iterate over linked polygons
+                for linked_polygon_index in linked_polygons:
+                    linked_poly_uvs = set(tuple(loop_to_uv[linked_loop_index].uv) for linked_loop_index in mesh.polygons[linked_polygon_index].loop_indices)
+                    # If the polygon hasn't been used and has two shared loop indices with the previous polygon
+                    if (polygon_index != linked_polygon_index
+                        and polygon_status[linked_polygon_index] == 0
+                        and len(poly_uvs.intersection(linked_poly_uvs)) >= 2):
+                        # Mark the polygon as used
+                        polygon_status[linked_polygon_index] = 1
+                        stack.append(linked_polygon_index)
+
+    # Iterate over polygons
+    for polygon_index in range(len(mesh.polygons)):
+        # If the polygon isn't used
+        if polygon_status[polygon_index] == 0:
+            # Create a set of loop uv indices containing the first polygon indices
+            current_island = set()
+
+            # Mark the polygon as used
+            polygon_status[polygon_index] = 1
+
+            # Start traversing the island
+            traverse_island(polygon_index, current_island)
+
+            # Add the island set to the list of islands
+            islands.append(current_island)
+
+    return islands
 
 class Vertex(object):
     def __init__(self):

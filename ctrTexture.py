@@ -1,4 +1,4 @@
-import struct, array
+import struct
 from .cmbEnums import GLTextureFormat
 #Ported from SPICA (https://github.com/gdkchan/SPICA)
 
@@ -242,84 +242,121 @@ def __Saturate(Value):
     if (Value < 0): return 0
     return Value
 
+def decode_RGBA8(output, input, o_offs, i_offs):
+    output[o_offs + 0] = input[i_offs + 3]
+    output[o_offs + 1] = input[i_offs + 2]
+    output[o_offs + 2] = input[i_offs + 1]
+    output[o_offs + 3] = input[i_offs + 0]
+
+def decode_RGB8(output, input, o_offs, i_offs):
+    output[o_offs + 0] = input[i_offs + 2]
+    output[o_offs + 1] = input[i_offs + 1]
+    output[o_offs + 2] = input[i_offs + 0]
+    output[o_offs + 3] = 0xff
+
+def decode_RGBA5551(output, input, o_offs, i_offs):
+    __DecodeRGBA5551(output, o_offs, __GetUShort(input, i_offs))
+
+def decode_RGB565(output, input, o_offs, i_offs):
+    __DecodeRGB565(output, o_offs, __GetUShort(input, i_offs))
+
+def decode_RGBA4(output, input, o_offs, i_offs):
+    __DecodeRGBA4(output, o_offs, __GetUShort(input, i_offs))
+
+def decode_LA8(output, input, o_offs, i_offs):
+    output[o_offs + 0] = input[i_offs + 1]
+    output[o_offs + 1] = input[i_offs + 1]
+    output[o_offs + 2] = input[i_offs + 1]
+    output[o_offs + 3] = input[i_offs + 0]
+
+def decode_L8(output, input, o_offs, i_offs):
+    output[o_offs + 0] = input[i_offs]
+    output[o_offs + 1] = input[i_offs]
+    output[o_offs + 2] = input[i_offs]
+    output[o_offs + 3] = 0xff
+
+def decode_A8(output, input, o_offs, i_offs):
+    output[o_offs + 0] = 0xff
+    output[o_offs + 1] = 0xff
+    output[o_offs + 2] = 0xff
+    output[o_offs + 3] = input[i_offs]
+
+def decode_LA4(output, input, o_offs, i_offs):
+    output[o_offs + 0] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
+    output[o_offs + 1] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
+    output[o_offs + 2] = ((input[i_offs] >> 4) | (input[i_offs] & 0xf0))
+    output[o_offs + 3] = ((input[i_offs] << 4) | (input[i_offs] & 0x0f))
+
+def decode_L4(output, input, o_offs, i_offs):
+    L = (input[i_offs >> 1] >> ((i_offs & 1) << 2)) & 0xf
+    output[o_offs + 0] = ((L << 4) | L)
+    output[o_offs + 1] = ((L << 4) | L)
+    output[o_offs + 2] = ((L << 4) | L)
+    output[o_offs + 3] = 0xff
+
+def decode_A4(output, input, o_offs, i_offs):
+    A = (input[i_offs >> 1] >> ((i_offs & 1) << 2)) & 0xf
+    output[o_offs + 0] = 0xff
+    output[o_offs + 1] = 0xff
+    output[o_offs + 2] = 0xff
+    output[o_offs + 3] = ((A << 4) | A)
+
+def decode_GasOrShadow(output, input, o_offs, i_offs):
+    output[o_offs + 0] = input[i_offs]
+    output[o_offs + 1] = input[i_offs]
+    output[o_offs + 2] = input[i_offs]
+    output[o_offs + 3] = 0xff
+
 def DecodeBuffer(Input, width, height, format, isETC1):
-        #Note: I don't think HiLo8 exist for .cmb
+    #Note: I don't think HiLo8 exist for .cmb
 
-        Increment = int(getFmtBPP(format) / 8)
-        if (Increment == 0): Increment = 1
-        Output = [0 for x in range(width * height * 4)]
-        IOffs = 0
+    Increment = int(getFmtBPP(format) / 8)
+    if (Increment == 0): Increment = 1
+    Output = [0 for _ in range(width * height * 4)]
+    IOffs = 0
 
-        # Is ETC1(a4)
-        if(isETC1):
-            return __ETC1Decompress(Input, width, height, ((format & 0xFFFF) == 26459))
+    # Is ETC1(a4)
+    if(isETC1):
+        return __ETC1Decompress(Input, width, height, ((format & 0xFFFF) == 26459))
 
-        for TY in range(0, height, 8):
-            for TX in range(0, width, 8):
-                for Px in range(64):
-                    X =  SwizzleLUT[Px] & 7
-                    Y = (SwizzleLUT[Px] - X) >> 3
+    # Initialize the dictionary with all decoding functions
+    function_dict = {
+        GLTextureFormat.RGBA8: decode_RGBA8,
+        GLTextureFormat.RGB8: decode_RGB8,
+        GLTextureFormat.RGBA5551: decode_RGBA5551,
+        GLTextureFormat.RGB565: decode_RGB565,
+        GLTextureFormat.RGBA4444: decode_RGBA4,
+        GLTextureFormat.LA8: decode_LA8,
+        GLTextureFormat.L8: decode_L8,
+        GLTextureFormat.A8: decode_A8,
+        GLTextureFormat.LA4: decode_LA4,
+        GLTextureFormat.L4: decode_L4,
+        GLTextureFormat.A4: decode_A4,
+        GLTextureFormat.Gas: decode_GasOrShadow,
+        GLTextureFormat.Shadow: decode_GasOrShadow,
+    }
 
-                    OOffs = int((TX + X + ((height - 1 - (TY + Y)) * width)) * 4)
+    # Get the decoding function based on the current format
+    decode_function = function_dict.get(format)
 
-                    if(format == GLTextureFormat.RGBA8):#RGBA8
-                        Output[OOffs + 0] = Input[IOffs + 3]
-                        Output[OOffs + 1] = Input[IOffs + 2]
-                        Output[OOffs + 2] = Input[IOffs + 1]
-                        Output[OOffs + 3] = Input[IOffs + 0]
-                    elif(format == GLTextureFormat.RGB8):#RGB8
-                        Output[OOffs + 0] = Input[IOffs + 2]
-                        Output[OOffs + 1] = Input[IOffs + 1]
-                        Output[OOffs + 2] = Input[IOffs + 0]
-                        Output[OOffs + 3] = 0xff
-                    elif(format == GLTextureFormat.RGBA5551): __DecodeRGBA5551(Output, OOffs, __GetUShort(Input, IOffs))
-                    elif(format == GLTextureFormat.RGB565):   __DecodeRGB565(Output, OOffs, __GetUShort(Input, IOffs))
-                    elif(format == GLTextureFormat.RGBA4444): __DecodeRGBA4(Output, OOffs, __GetUShort(Input, IOffs))
-                    elif(format == GLTextureFormat.LA8):#LA8
-                        Output[OOffs + 0] = Input[IOffs + 1]
-                        Output[OOffs + 1] = Input[IOffs + 1]
-                        Output[OOffs + 2] = Input[IOffs + 1]
-                        Output[OOffs + 3] = Input[IOffs + 0]
-                    elif(format == GLTextureFormat.L8):#L8
-                        Output[OOffs + 0] = Input[IOffs]
-                        Output[OOffs + 1] = Input[IOffs]
-                        Output[OOffs + 2] = Input[IOffs]
-                        Output[OOffs + 3] = 0xff
-                    elif(format == GLTextureFormat.A8):#A8
-                        Output[OOffs + 0] = 0xff
-                        Output[OOffs + 1] = 0xff
-                        Output[OOffs + 2] = 0xff
-                        Output[OOffs + 3] = Input[IOffs]
-                    elif(format == GLTextureFormat.LA4):#LA4
-                        Output[OOffs + 0] = ((Input[IOffs] >> 4) | (Input[IOffs] & 0xf0))
-                        Output[OOffs + 1] = ((Input[IOffs] >> 4) | (Input[IOffs] & 0xf0))
-                        Output[OOffs + 2] = ((Input[IOffs] >> 4) | (Input[IOffs] & 0xf0))
-                        Output[OOffs + 3] = ((Input[IOffs] << 4) | (Input[IOffs] & 0x0f))
-                    elif(format == GLTextureFormat.L4):#L4
-                        L = (Input[IOffs >> 1] >> ((IOffs & 1) << 2)) & 0xf
+    if not decode_function:
+        raise ValueError(f"Unsupported format: {format}")
 
-                        Output[OOffs + 0] = ((L << 4) | L)
-                        Output[OOffs + 1] = ((L << 4) | L)
-                        Output[OOffs + 2] = ((L << 4) | L)
-                        Output[OOffs + 3] = 0xff
-                    elif(format == GLTextureFormat.A4):#L4
-                        A = (Input[IOffs >> 1] >> ((IOffs & 1) << 2)) & 0xf
+    for TY in range(0, height, 8):
+        for TX in range(0, width, 8):
+            for Px in range(64):
+                X =  SwizzleLUT[Px] & 7
+                Y = (SwizzleLUT[Px] - X) >> 3
 
-                        Output[OOffs + 0] = 0xff
-                        Output[OOffs + 1] = 0xff
-                        Output[OOffs + 2] = 0xff
-                        Output[OOffs + 3] = ((A << 4) | A)
-                    elif(format == GLTextureFormat.Gas or format == GLTextureFormat.Shadow):
-                        Output[OOffs + 0] = Input[IOffs]
-                        Output[OOffs + 1] = Input[IOffs]
-                        Output[OOffs + 2] = Input[IOffs]
-                        Output[OOffs + 3] = 0xff
-                        
-                    #Convert to float for blender
-                    Output[OOffs + 0] /= 255
-                    Output[OOffs + 1] /= 255
-                    Output[OOffs + 2] /= 255
-                    Output[OOffs + 3] /= 255
+                OOffs = int((TX + X + ((height - 1 - (TY + Y)) * width)) * 4)
 
-                    IOffs += Increment
-        return Output
+                decode_function(Output, Input, OOffs, IOffs)
+                    
+                # Convert to float for blender
+                Output[OOffs + 0] /= 255
+                Output[OOffs + 1] /= 255
+                Output[OOffs + 2] /= 255
+                Output[OOffs + 3] /= 255
+
+                IOffs += Increment
+    return Output

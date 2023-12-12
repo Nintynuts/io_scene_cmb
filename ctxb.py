@@ -1,7 +1,9 @@
+import io, os, bpy
 
 from io import BufferedReader
 from .utils import *
 from .cmbEnums import GLTextureFormat
+from .ctrTexture import DecodeBuffer
 
 class CTXB:
 
@@ -42,3 +44,31 @@ class Texture:
         self.TextureFormat = GLTextureFormat(readUInt32(f))
         self.DataOffset = readUInt32(f)
         self.Name = readString(f, 16)
+        
+def loadCtxb(file: BufferedReader, folderName: str, fileName: str):
+    ctxb = CTXB(file)
+
+    for chunk in ctxb.Chunks:
+        for t in chunk.Textures:
+            name = t.Name if t.Name != "" else os.path.splitext(fileName)[0]
+            imagePath = os.path.join(folderName, f"{name} ({t.TextureFormat.name}).png")
+            if os.path.exists(imagePath):
+                continue
+            
+            image = bpy.data.images.new(t.Name, t.Width, t.Height, alpha=True)
+            image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, t.TextureFormat, t.TextureFormat is GLTextureFormat.ETC1a4 or GLTextureFormat.ETC1)
+            image.update()  # Updates the display image                
+            image.filepath_raw = imagePath
+            image.file_format = 'PNG'
+            image.save()
+
+def loadCtxbFiles(operator):
+    root = get_or_add_root()
+
+    dirname = os.path.dirname(operator.filepath)
+    for file in operator.files:
+        path = os.path.join(dirname, file.name)
+        with open(path, "rb") as f:
+            loadCtxb(f, os.path.dirname(path), file.name)
+
+    return {"FINISHED"}

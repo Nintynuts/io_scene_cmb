@@ -2,9 +2,7 @@ import io, os
 
 from io import BufferedReader
 from .utils import *
-from .ctxb import CTXB
-from .ctrTexture import DecodeBuffer
-from .cmbEnums import GLTextureFormat
+from .ctxb import loadCtxb
 
 class SystemFileGroup:
 
@@ -127,48 +125,37 @@ class GAR:
 def loadGar(garReader: BufferedReader, folderName, collection, parent):
     gar = GAR(garReader)
 
-    # iterate the texture files first so we can access them when loading the model
-    for file in gar.Files:
-        if file.Ext == "ctxb":
-            ctxb = CTXB(io.BufferedReader(io.BytesIO(file.Data)))
-            if not os.path.exists(folderName):
-                os.mkdir(folderName)
-
-            for chunk in ctxb.Chunks:
-                for t in chunk.Textures:
-                    imagePath = os.path.join(folderName, f"{t.Name}.png")
-                    if os.path.exists(imagePath):
-                        continue
-                    
-                    image = bpy.data.images.new(t.Name, t.Width, t.Height, alpha=True)
-                    image.pixels = DecodeBuffer(t.Data, t.Width, t.Height, t.TextureFormat, t.TextureFormat is GLTextureFormat.ETC1a4 or GLTextureFormat.ETC1)
-                    image.update()  # Updates the display image                
-                    image.filepath_raw = imagePath
-                    image.file_format = 'PNG'
-                    image.save()
-
     firstModel = None
     group = None
     
-    for file in gar.Files:
-        if file.Ext == "cmb":
-            from .import_cmb import loadCmb
-            model = loadCmb(io.BufferedReader(io.BytesIO(file.Data)), folderName, collection, parent)
-            if firstModel == None:
-                firstModel = model
-            else:
-                if group == None:
-                    group = bpy.data.objects.new(folderName.replace(os.path.dirname(folderName),"").strip(os.path.sep), None)
-                    collection.objects.link(group)
-                    group.parent = parent
-                    firstModel.parent = group
-                model.parent = group
-
-        if file.Ext == "gar":
-            folderName = os.path.join(folderName, file.FileName)
+    for file in reversed(gar.Files):
+        if file.Ext == "ctxb":
             if not os.path.exists(folderName):
                 os.mkdir(folderName)
-            loadGar(io.BufferedReader(io.BytesIO(file.Data)), folderName, collection, parent)
+
+            loadCtxb(io.BufferedReader(io.BytesIO(file.Data)), folderName, os.path.dirname(folderName))
+
+        if file.Ext == "cmb":
+            try:
+                from .import_cmb import loadCmb
+                model = loadCmb(io.BufferedReader(io.BytesIO(file.Data)), folderName, collection, parent)
+                if firstModel == None:
+                    firstModel = model
+                else:
+                    if group == None:
+                        group = bpy.data.objects.new(folderName.replace(os.path.dirname(folderName),"").strip(os.path.sep), None)
+                        collection.objects.link(group)
+                        group.parent = parent
+                        firstModel.parent = group
+                    model.parent = group
+            except:
+                print(f"Failed to load {file.FileName}")
+
+        if file.Ext == "gar":
+            childFolderName = os.path.join(folderName, file.FileName.replace("_tex", ""))
+            if not os.path.exists(folderName):
+                os.mkdir(folderName)
+            loadGar(io.BufferedReader(io.BytesIO(file.Data)), childFolderName, collection, parent)
 
     return firstModel if group == None else group
     

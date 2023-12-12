@@ -145,6 +145,7 @@ class TexCombinerAlphaOp(IntEnum):
     OneMinusBlue = 0x8585
 
 class TextureMinFilter(IntEnum):
+    Nothing = 0x0,
     Nearest = 0x2600,
     Linear = 0x2601,
     NearestMipmapNearest = 0x2700,
@@ -153,10 +154,12 @@ class TextureMinFilter(IntEnum):
     LinearMipmapLinear = 0x2703
 
 class TextureMagFilter(IntEnum):
+    Nothing = 0x0,
     Nearest = 0x2600,
     Linear = 0x2601,
 
 class TextureWrapMode(IntEnum):
+    Nothing = 0x0,
     ClampToBorder = 0x2900,
     Repeat = 0x2901,
     ClampToEdge = 0x812F,

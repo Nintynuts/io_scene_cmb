@@ -171,20 +171,10 @@ def getCombinerNodes(m: Material, stageIdx: int, stage: Combiner, textures: list
             return add.outputs[0]
 
         elif combinerMode == TexCombineMode.AddSigned:
-            subtract0 = nodes.new(mathNodeName)
-            subtract0.operation = 'SUBTRACT'
-            links.new(src0output, subtract0.inputs[0])
-            subtract0.inputs[1].default_value = 0.5
-
-            subtract1 = nodes.new(mathNodeName)
-            subtract1.operation = 'SUBTRACT'
-            links.new(src1output, subtract1.inputs[0])
-            subtract1.inputs[1].default_value = 0.5
-
             add = nodes.new(mathNodeName)
             add.operation = 'ADD'
-            links.new(subtract0.outputs[0], add.inputs[0])
-            links.new(subtract1.outputs[0], add.inputs[1])
+            links.new(src0output, add.inputs[0])
+            links.new(src1output, add.inputs[1])
             add.label = f"Stage {stageIdx}"
             return add.outputs[0]
 

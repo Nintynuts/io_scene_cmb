@@ -268,10 +268,10 @@ class TexMapper(object):
     def read(self, f: BufferedReader):
         self.textureID = readShort(f)# Not an int because "-1" is 0xFFFF0000 and not 0xFFFFFFFF
         readShort(f)# Alignment
-        self.minFilter = readUShort(f)
-        self.magFilter = readUShort(f)
-        self.wrapS = readUShort(f)
-        self.wrapT = readUShort(f)
+        self.minFilter = TextureMinFilter(readUShort(f))
+        self.magFilter = TextureMagFilter(readUShort(f))
+        self.wrapS = TextureWrapMode(readUShort(f))
+        self.wrapT = TextureWrapMode(readUShort(f))
         self.minLodBias = readFloat(f)
         self.lodBias = readFloat(f)
         self.borderColor = readArray(f, 4, DataTypes.UByte)

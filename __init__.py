@@ -56,6 +56,19 @@ class ImportGseb(bpy.types.Operator, ImportHelper):
     def execute( self, context ):
         from .gseb import loadGsebFiles
         return loadGsebFiles(self)
+    
+class ImportCtxb(bpy.types.Operator, ImportHelper):
+    bl_idname = "import.ctxb"
+    bl_label = "Import CTXB"
+    
+    filename_ext = ".ctxb"
+    filter_glob: bpy.props.StringProperty(default="*.ctxb", options={'HIDDEN'})
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'})
+    directory: bpy.props.StringProperty(subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+        
+    def execute( self, context ):
+        from .ctxb import loadCtxbFiles
+        return loadCtxbFiles(self)
 
 # ################################################################
 # Common
@@ -65,12 +78,14 @@ def menu_func_import( self, context ):
     self.layout.operator( ImportCmb.bl_idname, text="CtrModelBinary (.cmb)")
     self.layout.operator( ImportGar.bl_idname, text="GrezzoARchive (.gar)")
     self.layout.operator( ImportGseb.bl_idname, text="GrezzoSceneBinary (.gseb)")
+    self.layout.operator( ImportCtxb.bl_idname, text="CtrTeXtureBinary (.ctxb)")
 
 def register():
     print("Registering CMB\n")
     bpy.utils.register_class(ImportCmb)
     bpy.utils.register_class(ImportGar)
     bpy.utils.register_class(ImportGseb)
+    bpy.utils.register_class(ImportCtxb)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 def unregister():
@@ -78,6 +93,7 @@ def unregister():
     bpy.utils.unregister_class(ImportCmb)
     bpy.utils.unregister_class(ImportGar)
     bpy.utils.unregister_class(ImportGseb)
+    bpy.utils.unregister_class(ImportCtxb)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     
 if __name__ == "__main__":
